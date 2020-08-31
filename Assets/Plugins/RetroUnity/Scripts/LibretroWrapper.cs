@@ -191,6 +191,11 @@ namespace RetroUnity {
                 Libretro.RetroInit();
             }
 
+            public void DeInit()
+            {
+                Libretro.RetroDeInit();
+            }
+
             public bool Update() {
                 Libretro.RetroRun();
                 return true;
@@ -327,27 +332,24 @@ namespace RetroUnity {
             private void RetroAudioSample(short left, short right) {
                 // Unused.
             }
-        
+
+            bool readAudio = false;
+            float readsSkipped = 0;
             private unsafe void RetroAudioSampleBatch(short* data, uint frames) {
-                //for (int i = 0; i < (int) frames; i++) {
-                //    short chunk = Marshal.ReadInt16((IntPtr) data);
-                //    data += sizeof (short); // Set pointer to next chunk.
-                //    float value = chunk / 32768f; // Divide by Int16 max to get correct float value.
-                //    value = Mathf.Clamp(value, -1.0f, 1.0f); // Unity's audio only takes values between -1 and 1.
-
-                //    AudioBatch[BatchPosition] = value;
-                //    BatchPosition++;
-
-                //    // When the batch is filled send it to the speakers.
-                //    if (BatchPosition >= AudioBatchSize - 1) {
-                //        _speaker.UpdateAudio(AudioBatch);
-                //        BatchPosition = 0;
-                //    }
-                //}
-                for (int i = 0; i < frames * 2; ++i) {
-                    float value = data[i] * 0.000030517578125f;
-                    value = Mathf.Clamp(value, -1.0f, 1.0f); // Unity's audio only takes values between -1 and 1.
-                    AudioBatch.Add(value);
+                if (!readAudio)
+                {
+                    readsSkipped++;
+                    if (readsSkipped > 1000)
+                        readAudio = true;
+                }
+                else
+                {
+                    for (int i = 0; i < frames * 2; ++i)
+                    {
+                        float value = data[i] * 0.000030517578125f;
+                        value = Mathf.Clamp(value, -1.0f, 1.0f); // Unity's audio only takes values between -1 and 1.
+                        AudioBatch.Add(value);
+                    }
                 }
             }
 
@@ -483,6 +485,70 @@ namespace RetroUnity {
                 Debug.Log("Sample rate " + _av.timing.sample_rate);
                 return ret;
             }
+
+            public void SaveRAM(string path)
+            {
+                unsafe
+                {
+                    int size = Libretro.RetroGetMemorySize(0); //maybe look into getting the defined constant RETRO_MEMORY_SAVE_RAM
+                    void* data = Libretro.RetroGetMemoryData(0);
+
+                    byte[] saveData = new byte[size];
+
+                    for (int i = 0; i < size; i++)
+                        saveData[i] = ((byte*)data)[i];
+
+                    System.IO.File.WriteAllBytes(path, saveData);
+                }
+            }
+
+            public void LoadRAM(string path)
+            {
+                unsafe
+                {
+                    int size = Libretro.RetroGetMemorySize(0); //maybe look into getting the defined constant RETRO_MEMORY_SAVE_RAM
+                    void* data = Libretro.RetroGetMemoryData(0);
+
+                    if (File.Exists(path))
+                    {
+                        byte[] savedData = System.IO.File.ReadAllBytes(path);
+
+                        for (int i = 0; i < size; i++)
+                            ((byte*)data)[i] = savedData[i];
+                    }
+                }
+            }
+
+            public void SaveState(string path)
+            {
+                unsafe
+                {
+                    int size = Libretro.RetroSerializeSize();
+                    byte[] toSaveData = new byte[size];
+                    fixed (byte* p = &toSaveData[0])
+                    {
+                        Libretro.RetroSerialize(p, size);
+                        System.IO.File.WriteAllBytes(path, toSaveData);
+                    }
+                }
+            }
+
+            public void LoadState(string path)
+            {
+                unsafe
+                {
+                    if (File.Exists(path))
+                    {
+                        int size = Libretro.RetroSerializeSize();
+                        byte[] toLoad = System.IO.File.ReadAllBytes(path);
+                        fixed (byte* p = &toLoad[0])
+                        {
+                            Libretro.RetroDeserialize(p, size);
+                        }
+                    }
+                }
+            }
+
         }
 
         public unsafe class Libretro {
@@ -538,8 +604,9 @@ namespace RetroUnity {
 
             [UnmanagedFunctionPointer(CallingConvention.StdCall)]
             public delegate bool RetroSetEnvironmentDelegate(RetroEnvironmentDelegate r);
-
             public static RetroSetEnvironmentDelegate RetroSetEnvironment;
+            //typedef bool (*retro_environment_t)(unsigned cmd, void *data);
+            public delegate bool RetroEnvironmentDelegate(uint cmd, void* data);
 
             [UnmanagedFunctionPointer(CallingConvention.StdCall)]
             public delegate void RetroRunDelegate();
@@ -566,8 +633,26 @@ namespace RetroUnity {
             //typedef int16_t (*retro_input_state_t)(unsigned port, unsigned device, unsigned index, unsigned id);
             public delegate short RetroInputStateDelegate(uint port, uint device, uint index, uint id);
 
-            //typedef bool (*retro_environment_t)(unsigned cmd, void *data);
-            public delegate bool RetroEnvironmentDelegate(uint cmd, void* data);
+            [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+            public delegate void* RetroGetMemoryDataDelegate(uint id);
+            public static RetroGetMemoryDataDelegate RetroGetMemoryData;
+
+            [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+            public delegate int RetroGetMemorySizeDelegate(uint id);
+            public static RetroGetMemorySizeDelegate RetroGetMemorySize;
+
+            [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+            public delegate int RetroSerializeSizeDeleagte();
+            public static RetroSerializeSizeDeleagte RetroSerializeSize;
+
+            [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+            public delegate bool RetroSerializeDelegate(void* data, int size);
+            public static RetroSerializeDelegate RetroSerialize;
+
+            [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+            public delegate bool RetroDeserializeDelegate(void* data, int size);
+            public static RetroDeserializeDelegate RetroDeserialize;
+
 
             public static void InitializeLibrary(string dllName) {
                 IDLLHandler dllHandler = null;
@@ -596,6 +681,14 @@ namespace RetroUnity {
                 RetroSetEnvironment = dllHandler.GetMethod<RetroSetEnvironmentDelegate>("retro_set_environment");
                 RetroRun = dllHandler.GetMethod<RetroRunDelegate>("retro_run");
                 RetroDeInit = dllHandler.GetMethod<RetroDeInitDelegate>("retro_deinit");
+
+                RetroGetMemoryData = dllHandler.GetMethod<RetroGetMemoryDataDelegate>("retro_get_memory_data");
+                RetroGetMemorySize = dllHandler.GetMethod<RetroGetMemorySizeDelegate>("retro_get_memory_size");
+
+                RetroSerializeSize = dllHandler.GetMethod<RetroSerializeSizeDeleagte>("retro_serialize_size");
+                RetroSerialize = dllHandler.GetMethod<RetroSerializeDelegate>("retro_serialize");
+                RetroDeserialize = dllHandler.GetMethod<RetroDeserializeDelegate>("retro_unserialize");
+                //Debug.Log("Got emthods");
             }
         }
     }
