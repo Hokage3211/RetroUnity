@@ -21,8 +21,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 using RetroUnity.Utility;
 using UnityEngine;
+using Unity.Collections;
+using UnityEngine.Profiling;
+using Unity.Jobs;
 
 namespace RetroUnity {
     public class LibretroWrapper : MonoBehaviour {
@@ -112,6 +116,22 @@ namespace RetroUnity {
             public bool block_extract;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        public unsafe struct retro_variable
+        {
+            /* Variable to query in RETRO_ENVIRONMENT_GET_VARIABLE.
+             * If NULL, obtains the complete environment string if more
+             * complex parsing is necessary.
+             * The environment string is formatted as key-value pairs
+             * delimited by semicolons as so:
+             * "key1=value1;key2=value2;..."
+             */
+            public readonly char* key;
+
+            /* Value to be obtained. If key does not exist, it is set to NULL. */
+            public readonly char* value;
+        };
+
         public class Environment {
             public const uint RetroEnvironmentSetRotation = 1;
             public const uint RetroEnvironmentGetOverscan = 2;
@@ -125,6 +145,16 @@ namespace RetroUnity {
             public const uint RetroEnvironmentSetPixelFormat = 10;
             public const uint RetroEnvironmentSetInputDescriptors = 11;
             public const uint RetroEnvironmentSetKeyboardCallback = 12;
+            public const uint RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE = 13;
+            public const uint RETRO_ENVIRONMENT_SET_HW_RENDER = 14;
+            public const uint RETRO_ENVIRONMENT_GET_VARIABLE = 15;
+            public const uint RETRO_ENVIRONMENT_SET_VARIABLES = 16;
+            public const uint RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE = 17;
+            public const uint RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME = 18;
+            public const uint RETRO_ENVIRONMENT_GET_LIBRETRO_PATH = 19;
+            public const uint RETRO_ENVIRONMENT_SET_FRAME_TIME_CALLBACK = 21;
+            public const uint RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK = 22;
+            public const uint RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY = 31;
         }
 
         public class Wrapper {
@@ -153,7 +183,9 @@ namespace RetroUnity {
                 Libretro.InitializeLibrary(coreToLoad);
             }
 
+            public bool initialized = false;
             public unsafe void Init() {
+
                 int apiVersion = Libretro.RetroApiVersion();
                 SystemInfo info = new SystemInfo();
                 Libretro.RetroGetSystemInfo(ref info);
@@ -224,7 +256,7 @@ namespace RetroUnity {
                 //IntPtr rowStart = pixels;
 
                 //Get the size to move the pointer
-                //int size = 0;
+                int size = 24;
 
                 uint i;
                 uint j;
@@ -263,33 +295,41 @@ namespace RetroUnity {
                         }
                         break;
                     case PixelFormat.RetroPixelFormatXRGB8888:
-
                         LibretroWrapper.w = Convert.ToInt32(width);
                         LibretroWrapper.h = Convert.ToInt32(height);
-                        if (tex == null) {
-                            tex = new Texture2D(LibretroWrapper.w, LibretroWrapper.h, TextureFormat.RGB565, false);
+                        if (tex == null || tex.height != LibretroWrapper.h || tex.width != LibretroWrapper.w)
+                        {
+                            tex = new Texture2D(LibretroWrapper.w, LibretroWrapper.h, TextureFormat.ARGB32, false);
                         }
                         LibretroWrapper.p = Convert.ToInt32(pitch);
 
-                        //size = Marshal.SizeOf(typeof(int));
-                        for (i = 0; i < height; i++) {
-                            for (j = 0; j < width; j++) {
-                                int packed = Marshal.ReadInt32(pixels);
-                                _frameBuffer[i * width + j] = new Pixel {
-                                    Alpha = 1,
-                                    Red = ((packed >> 16) & 0x00FF) / 255.0f,
-                                    Green = ((packed >> 8) & 0x00FF) / 255.0f,
-                                    Blue = (packed & 0x00FF) / 255.0f
-                                };
-                                var color = new Color(((packed >> 16) & 0x00FF) / 255.0f, ((packed >> 8) & 0x00FF) / 255.0f, (packed & 0x00FF) / 255.0f, 1.0f);
-                                tex.SetPixel((int)i, (int)j, color);
-                                //pixels = (IntPtr)((int)pixels + size);
-                            }
-                            //pixels = (IntPtr)((int)rowStart + pitch);
-                            //rowStart = pixels;
+                        size = Marshal.SizeOf(typeof(int));
+                        //Get Pixel Array from Libretro
+                        Int32[] pixelarr = new Int32[width * height];
+                        Marshal.Copy(pixels, pixelarr, 0, (int)(width * height));
 
-                        }
+                        //Create Color Array 
+                        Color32[] color32arr = new Color32[width * height];
 
+                        //create job handles list
+                        JobHandle jobHandle = new JobHandle();
+                        //create native pixel array and color array for returning from unity Job
+                        var nativePixelArray = new NativeArray<Int32>(pixelarr, Allocator.TempJob);
+                        var nativeColorArray = new NativeArray<Color32>(color32arr, Allocator.TempJob);
+
+                        var job = new RGB8888Job
+                        {
+                            pixelarray = nativePixelArray,
+                            color32array = nativeColorArray
+                        };
+                        jobHandle = (job.Schedule(pixelarr.Length, 1000));
+                        jobHandle.Complete();
+                        nativeColorArray.CopyTo(color32arr);
+                        nativePixelArray.Dispose();
+                        nativeColorArray.Dispose();
+
+
+                        tex.SetPixels32(color32arr, 0);
                         tex.filterMode = FilterMode.Trilinear;
                         tex.Apply();
                         break;
@@ -331,24 +371,47 @@ namespace RetroUnity {
 
             private void RetroAudioSample(short left, short right) {
                 // Unused.
+                if (initialized)
+                {
+                    float value = left * -0.000030517578125f;
+                    value = Mathf.Clamp(value, -1.0f, 1.0f); // Unity's audio only takes values between -1 and 1.
+                    AudioBatch.Add(value);
+
+                    value = right * -0.000030517578125f;
+                    value = Mathf.Clamp(value, -1.0f, 1.0f); // Unity's audio only takes values between -1 and 1.
+                    AudioBatch.Add(value);
+                }
             }
 
-            bool readAudio = false;
-            float readsSkipped = 0;
+            bool prepAudio = false;
+            int tillReadAudio = 0;
             private unsafe void RetroAudioSampleBatch(short* data, uint frames) {
-                if (!readAudio)
+                if (initialized)
                 {
-                    readsSkipped++;
-                    if (readsSkipped > 1000)
-                        readAudio = true;
-                }
-                else
-                {
-                    for (int i = 0; i < frames * 2; ++i)
+                    if (!prepAudio)
                     {
-                        float value = data[i] * 0.000030517578125f;
-                        value = Mathf.Clamp(value, -1.0f, 1.0f); // Unity's audio only takes values between -1 and 1.
-                        AudioBatch.Add(value);
+                        for (int i = 0; i < frames * 2 && !prepAudio; ++i)
+                        {
+                            if (data[i] * 0.000030517578125f >= 0.05) //wait till populated valid data is sent through
+                            {
+                                prepAudio = true;
+                                _speaker.startAudio();
+                            }
+                        }
+                    }
+                    if (prepAudio)
+                    {
+                        if (tillReadAudio <= 0)
+                        {
+                            for (int i = 0; i < frames * 2; ++i)
+                            {
+                                float value = data[i] * 0.000030517578125f;
+                                value = Mathf.Clamp(value, -1.0f, 1.0f); // Unity's audio only takes values between -1 and 1.
+                                AudioBatch.Add(value);
+                            }
+                        }
+                        else
+                            tillReadAudio--;
                     }
                 }
             }
@@ -357,61 +420,115 @@ namespace RetroUnity {
             }
 
             public static short RetroInputState(uint port, uint device, uint index, uint id) {
-                switch (id) {
-                    case 0:
-                        return Input.GetKey(KeyCode.Z) || Input.GetButton("B") ? (short) 1 : (short) 0; // B
-                    case 1:
-                        return Input.GetKey(KeyCode.A) || Input.GetButton("Y") ? (short) 1 : (short) 0; // Y
-                    case 2:
-                        return Input.GetKey(KeyCode.Space) || Input.GetButton("SELECT") ? (short) 1 : (short) 0; // SELECT
-                    case 3:
-                        return Input.GetKey(KeyCode.Return) || Input.GetButton("START") ? (short) 1 : (short) 0; // START
-                    case 4:
-                        return Input.GetKey(KeyCode.UpArrow) || Input.GetAxisRaw("DpadX") >= 1.0f ? (short) 1 : (short) 0; // UP
-                    case 5:
-                        return Input.GetKey(KeyCode.DownArrow) || Input.GetAxisRaw("DpadX") <= -1.0f ? (short) 1 : (short) 0; // DOWN
-                    case 6:
-                        return Input.GetKey(KeyCode.LeftArrow) || Input.GetAxisRaw("DpadY") <= -1.0f ? (short) 1 : (short) 0; // LEFT
-                    case 7:
-                        return Input.GetKey(KeyCode.RightArrow) || Input.GetAxisRaw("DpadY") >= 1.0f ? (short) 1 : (short) 0; // RIGHT
-                    case 8:
-                        return Input.GetKey(KeyCode.X) || Input.GetButton("A") ? (short) 1 : (short) 0; // A
-                    case 9:
-                        return Input.GetKey(KeyCode.S) || Input.GetButton("X") ? (short) 1 : (short) 0; // X
-                    case 10:
-                        return Input.GetKey(KeyCode.Q) || Input.GetButton("L") ? (short) 1 : (short) 0; // L
-                    case 11:
-                        return Input.GetKey(KeyCode.W) || Input.GetButton("R") ? (short) 1 : (short) 0; // R
-                    case 12:
-                        return Input.GetKey(KeyCode.E) ? (short) 1 : (short) 0;
-                    case 13:
-                        return Input.GetKey(KeyCode.R) ? (short) 1 : (short) 0;
-                    case 14:
-                        return Input.GetKey(KeyCode.T) ? (short) 1 : (short) 0;
-                    case 15:
-                        return Input.GetKey(KeyCode.Y) ? (short) 1 : (short) 0;
-                    default:
-                        return 0;
+                switch (device)
+                {
+                    case 1: //retro device joypad
+                        {
+                            switch (id)
+                            {
+                                case 0:
+                                    return Input.GetKey(KeyCode.Z) || Input.GetButton("B") ? (short)1 : (short)0; // B
+                                case 1:
+                                    return Input.GetKey(KeyCode.A) || Input.GetButton("Y") ? (short)1 : (short)0; // Y
+                                case 2:
+                                    return Input.GetKey(KeyCode.Space) || Input.GetButton("SELECT") ? (short)1 : (short)0; // SELECT
+                                case 3:
+                                    return Input.GetKey(KeyCode.Return) || Input.GetButton("START") ? (short)1 : (short)0; // START
+                                case 4:
+                                    return Input.GetKey(KeyCode.UpArrow) || Input.GetAxisRaw("DpadX") >= 1.0f ? (short)1 : (short)0; // UP
+                                case 5:
+                                    return Input.GetKey(KeyCode.DownArrow) || Input.GetAxisRaw("DpadX") <= -1.0f ? (short)1 : (short)0; // DOWN
+                                case 6:
+                                    return Input.GetKey(KeyCode.LeftArrow) || Input.GetAxisRaw("DpadY") <= -1.0f ? (short)1 : (short)0; // LEFT
+                                case 7:
+                                    return Input.GetKey(KeyCode.RightArrow) || Input.GetAxisRaw("DpadY") >= 1.0f ? (short)1 : (short)0; // RIGHT
+                                case 8:
+                                    return Input.GetKey(KeyCode.X) || Input.GetButton("A") ? (short)1 : (short)0; // A
+                                case 9:
+                                    return Input.GetKey(KeyCode.S) || Input.GetButton("X") ? (short)1 : (short)0; // X
+                                case 10:
+                                    return Input.GetKey(KeyCode.Q) || Input.GetButton("L") ? (short)1 : (short)0; // L || L1
+                                case 11:
+                                    return Input.GetKey(KeyCode.W) || Input.GetButton("R") ? (short)1 : (short)0; // R || R1
+                                case 12:
+                                    return Input.GetKey(KeyCode.E) ? (short)1 : (short)0; //L2?
+                                case 13:
+                                    return Input.GetKey(KeyCode.R) ? (short)1 : (short)0; //R2?
+                                case 14:
+                                    return Input.GetKey(KeyCode.T) ? (short)1 : (short)0; //L3? (Left stick press?)
+                                case 15:
+                                    return Input.GetKey(KeyCode.Y) ? (short)1 : (short)0; //R3? (Right stick press?)
+                                default:
+                                    return 0;
+                            }
+                            break;
+                        }
+
+                    case 5: //retro device analog
+                            // * axis values in the full analog range of [-0x7fff, 0x7fff], (-32767 to 32767)
+                            // *although some devices may return -0x8000.
+                            //* Positive X axis is right.Positive Y axis is down.
+                            //* Buttons are returned in the range[0, 0x7fff]. (0 to 32767)
+                            //#define RETRO_DEVICE_INDEX_ANALOG_LEFT       0
+                            //#define RETRO_DEVICE_INDEX_ANALOG_RIGHT      1
+                            //#define RETRO_DEVICE_INDEX_ANALOG_BUTTON     2
+                            //#define RETRO_DEVICE_ID_ANALOG_X             0
+                            //#define RETRO_DEVICE_ID_ANALOG_Y             1
+                        switch (index)
+                        {
+                            case 0: //analog left (stick)
+                                switch (id)
+                                {
+                                    case 0:
+                                        return Input.GetKey(KeyCode.Y) ? (short)1 : (short)0; //L analog X
+                                    case 1:
+                                        return Input.GetKey(KeyCode.Y) ? (short)1 : (short)0; //L analog Y
+                                    default: return 0;
+                                }
+                                break;
+                            case 1: //analog right (stick)
+                                switch (id)
+                                {
+                                    case 0:
+                                        return Input.GetKey(KeyCode.Y) ? (short)1 : (short)0; //R analog X
+                                    case 1:
+                                        return Input.GetKey(KeyCode.Y) ? (short)1 : (short)0; //R analog Y
+                                    default: return 0;
+                                }
+                                break;
+                            case 2: //analog button?
+                                return 0;
+                                break;
+                            default: return 0;
+                        }
+                        break;
+                    default: return 0;
                 }
             }
 
             private unsafe bool RetroEnvironment(uint cmd, void* data) {
                 switch (cmd) {
-                    case Environment.RetroEnvironmentGetOverscan:
-                        break;
-                    case Environment.RetroEnvironmentGetVariable:
-                        break;
-                    case Environment.RetroEnvironmentSetVariables:
-                        break;
-                    case Environment.RetroEnvironmentSetMessage:
-                        break;
-                    case Environment.RetroEnvironmentSetRotation:
-                        break;
-                    case Environment.RetroEnvironmentShutdown:
-                        break;
-                    case Environment.RetroEnvironmentSetPerformanceLevel:
-                        break;
+                    //case Environment.RetroEnvironmentGetOverscan:
+                    //    break;
+                    //case Environment.RetroEnvironmentGetVariable:
+                    //    //retro_variable vr = *(retro_variable*)data;
+                    //    //Debug.Log("cmd 4: Asking for variable: " + Marshal.PtrToStringAnsi((IntPtr)vr.key));
+                    //    break;
+                    //case Environment.RetroEnvironmentSetVariables:
+                    //    break;
+                    //case Environment.RetroEnvironmentSetMessage:
+                    //    break;
+                    //case Environment.RetroEnvironmentSetRotation:
+                    //    break;
+                    //case Environment.RetroEnvironmentShutdown:
+                    //    break;
+                    //case Environment.RetroEnvironmentSetPerformanceLevel:
+                    //    break;
                     case Environment.RetroEnvironmentGetSystemDirectory:
+                        char** array = (char**)data;
+                        string systemDirectory = Application.streamingAssetsPath + "/" + "System";
+                        *array = StringToChar(systemDirectory);
+                        //Debug.Log("Polled system directory");
                         break;
                     case Environment.RetroEnvironmentSetPixelFormat:
                         _pixelFormat = *(PixelFormat*) data;
@@ -426,9 +543,18 @@ namespace RetroUnity {
                                 break;
                         }
                         break;
-                    case Environment.RetroEnvironmentSetInputDescriptors:
+                    //case Environment.RetroEnvironmentSetInputDescriptors:
+                    //    break;
+                    //case Environment.RetroEnvironmentSetKeyboardCallback:
+                    //    break;
+                    case Environment.RETRO_ENVIRONMENT_GET_VARIABLE:
+                        //retro_variable v = *(retro_variable*)data;
+                        //string keyName = Marshal.PtrToStringAnsi((IntPtr)v.key);
+                        //Debug.Log("cmd 15 Asking for variable: " + keyName);
+                        return false; //we still didn't do anything here so we return false like we didn't get command for now
                         break;
-                    case Environment.RetroEnvironmentSetKeyboardCallback:
+                    case Environment.RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
+                        *(bool*)data = false; //say there has been no variable updates
                         break;
                     default:
                         return false;
@@ -513,8 +639,11 @@ namespace RetroUnity {
                     {
                         byte[] savedData = System.IO.File.ReadAllBytes(path);
 
-                        for (int i = 0; i < size; i++)
-                            ((byte*)data)[i] = savedData[i];
+                        if (savedData.Length == size)
+                        {
+                            for (int i = 0; i < size; i++)
+                                ((byte*)data)[i] = savedData[i];
+                        }
                     }
                 }
             }

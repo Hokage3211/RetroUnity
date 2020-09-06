@@ -7,7 +7,18 @@ namespace RetroUnity {
 
         private AudioSource _speaker;
 
-        private void Start() {
+        private bool started = false;
+        //private void Update()
+        //{
+        //    if (!started && LibretroWrapper.Wrapper.AudioBatch.Count != 0)
+        //    {
+        //        startAudio();
+        //    }
+        //}
+
+        public void startAudio()
+        {
+            
             _speaker = GetComponent<AudioSource>();
             if (_speaker == null) return;
             //var audioConfig = AudioSettings.GetConfiguration();
@@ -20,6 +31,7 @@ namespace RetroUnity {
             //_speaker.loop = true;
             //Debug.Log("Unity sample rate: " + audioConfig.sampleRate);
             //Debug.Log("Unity buffer size: " + audioConfig.dspBufferSize);
+            started = true;
         }
 
         private void OnAudioFilterRead(float[] data, int channels) {
@@ -30,7 +42,10 @@ namespace RetroUnity {
             for (i = 0; i < data.Length; i++)
                 data[i] = LibretroWrapper.Wrapper.AudioBatch[i];
             // remove data from the beginning
-            LibretroWrapper.Wrapper.AudioBatch.RemoveRange(0, i);
+            if (LibretroWrapper.Wrapper.AudioBatch.Count < 10000)
+                LibretroWrapper.Wrapper.AudioBatch.RemoveRange(0, i);
+            else
+                LibretroWrapper.Wrapper.AudioBatch.RemoveRange(0, 10000); //clear out excess data, since my method method has no audio lag, but seems to provide trailing numbers
         }
 
         private void OnGUI() {

@@ -12,17 +12,35 @@ namespace RetroUnity {
         private LibretroWrapper.Wrapper wrapper;
 
         private float _frameTimer;
+        public float targetFPS = 50.99986f;
 
         public Renderer Display;
 
+        private bool gameLoaded = false;
+
         private void Awake() {
-            LoadRom(Application.streamingAssetsPath + "/" + RomName);
+            //LoadGame(Application.streamingAssetsPath + "/" + RomName);
+        }
+
+        public void loadGame()
+        {
+            string path = UnityEditor.EditorUtility.OpenFilePanel("Select Game ROM File", Application.streamingAssetsPath, "");
+            string corePath = UnityEditor.EditorUtility.OpenFilePanel("Select Emulator Core File", Application.streamingAssetsPath, "dll");
+            if (path != "" && corePath != "")
+                LoadRom(path, corePath);
+        }
+
+        public void LoadGame(string path)
+        {
+            LoadRom(path);
         }
 
         private void Update() {
-            if (wrapper != null) {
+            if (gameLoaded) {
                 _frameTimer += Time.deltaTime;
-                float timePerFrame = 1f / (float)wrapper.GetAVInfo().timing.fps;
+                float timePerFrame = 1 / targetFPS;
+                if (!double.IsNaN(wrapper.GetAVInfo().timing.fps))
+                    timePerFrame = 1f / (float)wrapper.GetAVInfo().timing.fps;
 
                 while (_frameTimer >= timePerFrame)
                 {
@@ -38,9 +56,13 @@ namespace RetroUnity {
             if (LibretroWrapper.tex != null) {
                 Display.material.mainTexture = LibretroWrapper.tex;
             }
+            if (Input.GetKeyDown(KeyCode.PageUp))
+            {
+                loadGame();
+            }
         }
 
-        public void LoadRom(string path) {
+        public void LoadRom(string path, string corePath = "") {
 
             RAMPath = path.Substring(0, path.LastIndexOf('.'));
             STATEPath = RAMPath + ".state";
@@ -57,12 +79,18 @@ namespace RetroUnity {
 #endif
             Display.material.color = Color.white;
 
-            wrapper = new LibretroWrapper.Wrapper(Application.streamingAssetsPath + "/" + CoreName);
+            if (corePath == "")
+                wrapper = new LibretroWrapper.Wrapper(Application.streamingAssetsPath + "/" + CoreName);
+            else
+                wrapper = new LibretroWrapper.Wrapper(corePath);
 
             wrapper.Init();
             wrapper.LoadGame(path);
-            wrapper.LoadRAM(RAMPath);
+            if (RAMPath != null)
+                wrapper.LoadRAM(RAMPath);
 
+            gameLoaded = true;
+            wrapper.initialized = true;
         }
 
         public void saveState()
@@ -76,9 +104,16 @@ namespace RetroUnity {
         }
 
         private void OnDestroy() {
-            wrapper.SaveRAM(RAMPath);
-            wrapper.DeInit();
+            if (RAMPath != null && wrapper != null)
+            {
+                wrapper.SaveRAM(RAMPath);
+                wrapper.DeInit();
+                wrapper.initialized = false;
+            }
             WindowsDLLHandler.Instance.UnloadCore();
+
+            gameLoaded = false;
+            
         }
     }
 }
