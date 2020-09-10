@@ -103,6 +103,64 @@ namespace RetroUnity {
         }
 
         [StructLayout(LayoutKind.Sequential)]
+        public struct retro_frame_time_callback
+        {
+            public IntPtr callback; // retro_frame_time_callback_t
+            public long reference;
+        }
+
+        private enum retro_hw_context_type
+        {
+            RETRO_HW_CONTEXT_NONE = 0,
+            RETRO_HW_CONTEXT_OPENGL = 1,
+            RETRO_HW_CONTEXT_OPENGLES2 = 2,
+            RETRO_HW_CONTEXT_OPENGL_CORE = 3,
+            RETRO_HW_CONTEXT_OPENGLES3 = 4,
+            RETRO_HW_CONTEXT_OPENGLES_VERSION = 5,
+            RETRO_HW_CONTEXT_VULKAN = 6,
+            RETRO_HW_CONTEXT_DIRECT3D = 7
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct retro_hw_render_callback
+        {
+            public retro_hw_context_type context_type;
+            public IntPtr context_reset;           // retro_hw_context_reset_t
+            public IntPtr get_current_framebuffer; // retro_hw_get_current_framebuffer_t
+            public IntPtr get_proc_address;        // retro_hw_get_proc_address_t
+            [MarshalAs(UnmanagedType.U1)] public bool depth;
+            [MarshalAs(UnmanagedType.U1)] public bool stencil;
+            [MarshalAs(UnmanagedType.U1)] public bool bottom_left_origin;
+            public uint version_major;
+            public uint version_minor;
+            [MarshalAs(UnmanagedType.U1)] public bool cache_context;
+
+            public IntPtr context_destroy; // retro_hw_context_reset_t
+
+            [MarshalAs(UnmanagedType.U1)] public bool debug_context;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public unsafe struct retro_memory_descriptor
+        {
+            public ulong flags;
+            public void* ptr;
+            public ulong offset;
+            public ulong start;
+            public ulong select;
+            public ulong disconnect;
+            public ulong len;
+            public char* addrspace;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private unsafe struct retro_memory_map
+        {
+            public retro_memory_descriptor* descriptors;
+            public uint num_descriptors;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
         public unsafe struct SystemInfo {
 
             public char* library_name;
@@ -114,6 +172,35 @@ namespace RetroUnity {
 
             [MarshalAs(UnmanagedType.U1)]
             public bool block_extract;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private unsafe struct retro_subsystem_memory_info
+        {
+            public char* extension;
+            public uint type;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private unsafe struct retro_subsystem_rom_info
+        {
+            public char* desc;
+            public char* valid_extensions;
+            [MarshalAs(UnmanagedType.U1)] public bool need_fullpath;
+            [MarshalAs(UnmanagedType.U1)] public bool block_extract;
+            [MarshalAs(UnmanagedType.U1)] public bool required;
+            public retro_subsystem_memory_info* memory;
+            public uint num_memory;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private unsafe struct retro_subsystem_info
+        {
+            public char* desc;
+            public char* ident;
+            public retro_subsystem_rom_info* roms;
+            public uint num_roms;
+            public uint id;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -129,15 +216,63 @@ namespace RetroUnity {
             public readonly char* key;
 
             /* Value to be obtained. If key does not exist, it is set to NULL. */
-            public readonly char* value;
+            public char* value;
         };
 
+        public class CoreOptions
+        {
+            public string CoreName = string.Empty;
+            public List<string> Options = new List<string>();
+        }
+
+        public class CoreOptionsList
+        {
+            public List<CoreOptions> Cores = new List<CoreOptions>();
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private unsafe struct retro_core_option_definition
+        {
+            public char* key;
+            public char* desc;
+            public char* info;
+            [MarshalAs(UnmanagedType.ByValArray, ArraySubType = UnmanagedType.Struct, SizeConst = RETRO_NUM_CORE_OPTION_VALUES_MAX)]
+            public retro_core_option_value[] values; // retro_core_option_value[RETRO_NUM_CORE_OPTION_VALUES_MAX]
+            public char* default_value;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private unsafe struct retro_core_options_intl
+        {
+            [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.Struct)]
+            public IntPtr us;    // retro_core_option_definition*
+            [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.Struct)]
+            public IntPtr local; // retro_core_option_definition*
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private unsafe struct retro_core_option_value
+        {
+            public char* value;
+            public char* label;
+        }
+
+        public const int RETRO_NUM_CORE_OPTION_VALUES_MAX = 128;
+
         public class Environment {
+
+            public const int RETRO_API_VERSION = 1;
+
+            private const int RETRO_ENVIRONMENT_EXPERIMENTAL = 0x10000;
+            private const int RETRO_ENVIRONMENT_PRIVATE = 0x20000;
+
+            
+
             public const uint RetroEnvironmentSetRotation = 1;
             public const uint RetroEnvironmentGetOverscan = 2;
             public const uint RetroEnvironmentGetCanDupe = 3;
-            public const uint RetroEnvironmentGetVariable = 4;
-            public const uint RetroEnvironmentSetVariables = 5;
+            //public const uint RetroEnvironmentGetVariable = 4;
+            //public const uint RetroEnvironmentSetVariables = 5;
             public const uint RetroEnvironmentSetMessage = 6;
             public const uint RetroEnvironmentShutdown = 7;
             public const uint RetroEnvironmentSetPerformanceLevel = 8;
@@ -154,7 +289,15 @@ namespace RetroUnity {
             public const uint RETRO_ENVIRONMENT_GET_LIBRETRO_PATH = 19;
             public const uint RETRO_ENVIRONMENT_SET_FRAME_TIME_CALLBACK = 21;
             public const uint RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK = 22;
+            public const uint RETRO_ENVIRONMENT_GET_CORE_ASSETS_DIRECTORY = 30;
             public const uint RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY = 31;
+            public const uint RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO = 32;
+            public const uint RETRO_ENVIRONMENT_SET_SUBSYSTEM_INFO = 34;
+            public const uint RETRO_ENVIRONMENT_SET_MEMORY_MAPS = 36 | RETRO_ENVIRONMENT_EXPERIMENTAL;
+            public const uint RETRO_ENVIRONMENT_SET_GEOMETRY = 37;
+            public const uint RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE = 47 | RETRO_ENVIRONMENT_EXPERIMENTAL;
+            public const uint RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION = 52;
+            public const uint RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL = 54;
         }
 
         public class Wrapper {
@@ -184,13 +327,16 @@ namespace RetroUnity {
             }
 
             public bool initialized = false;
+            string coreName;
             public unsafe void Init() {
+
+                LoadCoreOptionsFile();
 
                 int apiVersion = Libretro.RetroApiVersion();
                 SystemInfo info = new SystemInfo();
                 Libretro.RetroGetSystemInfo(ref info);
 
-                string coreName = Marshal.PtrToStringAnsi((IntPtr)info.library_name);
+                coreName = Marshal.PtrToStringAnsi((IntPtr)info.library_name);
                 string coreVersion = Marshal.PtrToStringAnsi((IntPtr)info.library_version);
                 string validExtensions = Marshal.PtrToStringAnsi((IntPtr)info.valid_extensions);
                 _requiresFullPath = info.need_fullpath;
@@ -256,7 +402,7 @@ namespace RetroUnity {
                 //IntPtr rowStart = pixels;
 
                 //Get the size to move the pointer
-                int size = 24;
+                //int size = 24;
 
                 uint i;
                 uint j;
@@ -297,40 +443,24 @@ namespace RetroUnity {
                     case PixelFormat.RetroPixelFormatXRGB8888:
                         LibretroWrapper.w = Convert.ToInt32(width);
                         LibretroWrapper.h = Convert.ToInt32(height);
-                        if (tex == null || tex.height != LibretroWrapper.h || tex.width != LibretroWrapper.w)
+                        if (tex == null)
                         {
-                            tex = new Texture2D(LibretroWrapper.w, LibretroWrapper.h, TextureFormat.ARGB32, false);
+                            tex = new Texture2D(LibretroWrapper.w, LibretroWrapper.h, TextureFormat.BGRA32, false);
                         }
-                        LibretroWrapper.p = Convert.ToInt32(pitch);
-
-                        size = Marshal.SizeOf(typeof(int));
-                        //Get Pixel Array from Libretro
-                        Int32[] pixelarr = new Int32[width * height];
-                        Marshal.Copy(pixels, pixelarr, 0, (int)(width * height));
-
-                        //Create Color Array 
-                        Color32[] color32arr = new Color32[width * height];
-
-                        //create job handles list
-                        JobHandle jobHandle = new JobHandle();
-                        //create native pixel array and color array for returning from unity Job
-                        var nativePixelArray = new NativeArray<Int32>(pixelarr, Allocator.TempJob);
-                        var nativeColorArray = new NativeArray<Color32>(color32arr, Allocator.TempJob);
-
-                        var job = new RGB8888Job
+                        if (tex.format != TextureFormat.BGRA32 || tex.width != LibretroWrapper.w || tex.height != LibretroWrapper.h)
                         {
-                            pixelarray = nativePixelArray,
-                            color32array = nativeColorArray
-                        };
-                        jobHandle = (job.Schedule(pixelarr.Length, 1000));
-                        jobHandle.Complete();
-                        nativeColorArray.CopyTo(color32arr);
-                        nativePixelArray.Dispose();
-                        nativeColorArray.Dispose();
+                            tex = new Texture2D(LibretroWrapper.w, LibretroWrapper.h, TextureFormat.BGRA32, false);
+                        }
 
+                        new ARGB8888Job
+                        {
+                            SourceData = (uint*)data,
+                            Width = LibretroWrapper.w,
+                            Height = LibretroWrapper.h,
+                            PitchPixels = pitch,
+                            TextureData = tex.GetRawTextureData<uint>()
+                        }.Schedule().Complete();
 
-                        tex.SetPixels32(color32arr, 0);
-                        tex.filterMode = FilterMode.Point;
                         tex.Apply();
                         break;
 
@@ -362,6 +492,7 @@ namespace RetroUnity {
                         tex.Apply();
                         break;
                     case PixelFormat.RetroPixelFormatUnknown:
+                        Debug.LogWarning("Unknown Pixel Format!");
                         _frameBuffer = null;
                         break;
                     default:
@@ -506,16 +637,31 @@ namespace RetroUnity {
                 }
             }
 
+            public CoreOptions coreOptions;
+            private CoreOptionsList _coreOptionsList;
+            public retro_memory_descriptor[] descriptors;
+            private int rotation;
+
+            private const uint SUBSYSTEM_MAX_SUBSYSTEMS = 20;
+            private const uint SUBSYSTEM_MAX_SUBSYSTEM_ROMS = 10;
+
+            private readonly retro_subsystem_info[] subsystem_data = new retro_subsystem_info[SUBSYSTEM_MAX_SUBSYSTEMS];
+            private readonly unsafe retro_subsystem_rom_info*[] subsystem_data_roms = new retro_subsystem_rom_info*[SUBSYSTEM_MAX_SUBSYSTEMS];
+            private uint subsystem_current_count;
+
+            private uint lastCommand = 0;
             private unsafe bool RetroEnvironment(uint cmd, void* data) {
+                int hey = 0;
+                lastCommand = cmd;
                 switch (cmd) {
-                    //case Environment.RetroEnvironmentGetOverscan:
-                    //    break;
-                    //case Environment.RetroEnvironmentGetVariable:
-                    //    //retro_variable vr = *(retro_variable*)data;
-                    //    //Debug.Log("cmd 4: Asking for variable: " + Marshal.PtrToStringAnsi((IntPtr)vr.key));
-                    //    break;
-                    //case Environment.RetroEnvironmentSetVariables:
-                    //    break;
+                    case Environment.RetroEnvironmentGetOverscan:
+                        bool* outOverscan = (bool*)data;
+                        *outOverscan = false;
+                        break;
+                    case Environment.RetroEnvironmentGetCanDupe:
+                        bool* outCanDupe = (bool*)data;
+                        *outCanDupe = true;
+                        break;
                     //case Environment.RetroEnvironmentSetMessage:
                     //    break;
                     //case Environment.RetroEnvironmentSetRotation:
@@ -543,18 +689,286 @@ namespace RetroUnity {
                                 break;
                         }
                         break;
-                    //case Environment.RetroEnvironmentSetInputDescriptors:
-                    //    break;
                     //case Environment.RetroEnvironmentSetKeyboardCallback:
                     //    break;
                     case Environment.RETRO_ENVIRONMENT_GET_VARIABLE:
                         //retro_variable v = *(retro_variable*)data;
                         //string keyName = Marshal.PtrToStringAnsi((IntPtr)v.key);
                         //Debug.Log("cmd 15 Asking for variable: " + keyName);
-                        return false; //we still didn't do anything here so we return false like we didn't get command for now
+                        retro_variable* outVariable = (retro_variable*)data;
+
+                        string key = Marshal.PtrToStringAnsi((IntPtr)outVariable->key);
+                        if (coreOptions != null)
+                        {
+                            string coreOption = coreOptions.Options.Find(x => x.StartsWith(key, StringComparison.OrdinalIgnoreCase));
+                            if (coreOption != null)
+                            {
+                                outVariable->value = StringToChar(coreOption.Split(';')[1]);
+                            }
+                            else
+                            {
+                                Debug.LogWarning($"Core option {key} not found!");
+                                return false;
+                            }
+                        }
+                        else
+                        {
+                            Debug.LogWarning($"Core didn't set its options for key '{key}'.");
+                            return false;
+                        }
+
+                        //return false; //we still didn't do anything here so we return false like we didn't get command for now
                         break;
                     case Environment.RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
                         *(bool*)data = false; //say there has been no variable updates
+                        break;
+                    case Environment.RETRO_ENVIRONMENT_GET_CORE_ASSETS_DIRECTORY:
+                        char** assetsArray = (char**)data;
+                        string sysDir = Application.streamingAssetsPath + "/" + "System";
+                        *assetsArray = StringToChar(sysDir);
+                        break;
+                    case Environment.RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
+                        char** saveStr = (char**)data;
+                        string savDir = Application.streamingAssetsPath + "/" + "SaveDirectory";
+                        *saveStr = StringToChar(savDir);
+                        break;
+                    case Environment.RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
+                        int result = 0;
+                        result |= 1; // if video enabled
+                        result |= 2; // if audio enabled
+
+                        int* outAudioVideoEnabled = (int*)data;
+                        *outAudioVideoEnabled = result;
+                        break;
+                    case Environment.RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION:
+                        uint* outVersion = (uint*)data;
+                        *outVersion = Environment.RETRO_API_VERSION;
+                        break;
+
+                    //considered "front-end" from here on out
+
+                    case Environment.RetroEnvironmentSetRotation:
+                        // TODO: Rotate screen (counter-clockwise)
+                        // Values: 0,  1,   2,   3
+                        // Result: 0, 90, 180, 270 degrees
+                        uint* inRotation = (uint*)data;
+                        rotation = (int)*inRotation;
+                        break;
+                    case Environment.RetroEnvironmentSetPerformanceLevel:
+                        break;
+                    case Environment.RetroEnvironmentSetInputDescriptors:
+                        break;
+                    case Environment.RETRO_ENVIRONMENT_SET_VARIABLES:
+                        try
+                        {
+                            retro_variable* inVariable = (retro_variable*)data;
+
+                            coreOptions = _coreOptionsList.Cores.Find(x => x.CoreName.Equals(coreName, StringComparison.OrdinalIgnoreCase));
+                            if (coreOptions == null)
+                            {
+                                coreOptions = new CoreOptions { CoreName = coreName };
+                                _coreOptionsList.Cores.Add(coreOptions);
+                            }
+
+                            while (inVariable->key != null)
+                            {
+                                string inKey = Marshal.PtrToStringAnsi((IntPtr)inVariable->key);
+                                string coreOption = coreOptions.Options.Find(x => x.StartsWith(inKey, StringComparison.OrdinalIgnoreCase));
+                                if (coreOption == null)
+                                {
+                                    string inValue = Marshal.PtrToStringAnsi((IntPtr)inVariable->value);
+                                    string[] descriptionAndValues = inValue.Split(';');
+                                    string[] possibleValues = descriptionAndValues[1].Trim().Split('|');
+                                    string defaultValue = possibleValues[0];
+                                    string value = defaultValue;
+                                    coreOption = $"{inKey};{value};{string.Join("|", possibleValues)};";
+                                    coreOptions.Options.Add(coreOption);
+                                }
+                                ++inVariable;
+                            }
+                        }
+                        catch (Exception e)
+                        {
+                            Debug.LogError(e);
+                        }
+
+                        SaveCoreOptionsFile();
+                        break;
+                    case Environment.RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME:
+                        *(bool*)data = false;
+                        break;
+                    case Environment.RETRO_ENVIRONMENT_SET_FRAME_TIME_CALLBACK:
+                        
+                        break;
+                    case Environment.RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
+                        SystemAVInfo* inSystemAVnfo = (SystemAVInfo*)data;
+                        _av = *inSystemAVnfo;
+                        break;
+                    case Environment.RETRO_ENVIRONMENT_SET_SUBSYSTEM_INFO:
+                        //retro_subsystem_info* subsytemInfo = (retro_subsystem_info*)data;
+                        ////Debug.Log("<color=yellow>Subsystem Info:</color>");
+                        ////Debug.Log($"<color=yellow>Description:</color> {Marshal.PtrToStringAnsisubsytemInfo->desc)}");
+                        ////Debug.Log($"<color=yellow>Ident:</color> {Marshal.PtrToStringAnsisubsytemInfo->ident)}");
+                        //_game_type = subsytemInfo->id;
+                        //_num_info = subsytemInfo->num_roms;
+                        //while (subsytemInfo->roms != null)
+                        //{
+                        //    RetroSubsystemRomInfo* romInfo = subsytemInfo->roms;
+                        //    //Debug.Log("<color=orange>Rom Info:</color>");
+                        //    //Debug.Log($"<color=orange>Description:</color> {Marshal.PtrToStringAnsiromInfo->desc)}");
+                        //    //Debug.Log($"<color=orange>Extensions:</color> {Marshal.PtrToStringAnsiromInfo->valid_extensions)}");
+                        //    subsytemInfo++;
+                        //}
+
+                        retro_subsystem_info* inSubsytemInfo = (retro_subsystem_info*)data;
+                        // settings_t* settings = configuration_settings;
+                        // unsigned log_level = settings->uints.frontend_log_level;
+
+                        subsystem_current_count = 0;
+
+                        uint size = 0;
+
+                        uint i = 0;
+                        while (inSubsytemInfo[i].ident != null)
+                        {
+                            string subsystemDesc = CharsToString(inSubsytemInfo[i].desc);
+                            string subsystemIdent = CharsToString(inSubsytemInfo[i].ident);
+                            uint subsystemId = inSubsytemInfo[i].id;
+                            for (uint j = 0; j < inSubsytemInfo[i].num_roms; j++)
+                            {
+                                string romDesc = CharsToString(inSubsytemInfo[i].roms[j].desc);
+                                string required = inSubsytemInfo[i].roms[j].required ? "required" : "optional";
+                            }
+                            i++;
+                        }
+
+                        //if (log_level == RETRO_LOG_DEBUG)
+                        size = i;
+
+                        //if (log_level == RETRO_LOG_DEBUG)
+                        if (size > SUBSYSTEM_MAX_SUBSYSTEMS)
+                        {
+                        }
+
+                        if (subsystem_data != null)
+                        {
+                            for (uint k = 0; k < size && k < SUBSYSTEM_MAX_SUBSYSTEMS; k++)
+                            {
+                                ref retro_subsystem_info subdata = ref subsystem_data[k];
+
+                                subdata.desc = inSubsytemInfo[k].desc;
+                                subdata.ident = inSubsytemInfo[k].ident;
+                                subdata.id = inSubsytemInfo[k].id;
+                                subdata.num_roms = inSubsytemInfo[k].num_roms;
+
+                                //if (log_level == RETRO_LOG_DEBUG)
+                                if (subdata.num_roms > SUBSYSTEM_MAX_SUBSYSTEM_ROMS)
+                                {
+                                }
+
+                                for (uint j = 0; j < subdata.num_roms && j < SUBSYSTEM_MAX_SUBSYSTEM_ROMS; j++)
+                                {
+                                    while (subdata.roms != null)
+                                    {
+                                        retro_subsystem_rom_info* romInfo = subdata.roms;
+                                        romInfo->desc = inSubsytemInfo[k].roms[j].desc;
+                                        romInfo->valid_extensions = inSubsytemInfo[k].roms[j].valid_extensions;
+                                        romInfo->required = inSubsytemInfo[k].roms[j].required;
+                                        romInfo->block_extract = inSubsytemInfo[k].roms[j].block_extract;
+                                        romInfo->need_fullpath = inSubsytemInfo[k].roms[j].need_fullpath;
+                                        subdata.roms++;
+                                    }
+                                }
+
+                                subdata.roms = subsystem_data_roms[k];
+                            }
+
+                            subsystem_current_count = (size <= SUBSYSTEM_MAX_SUBSYSTEMS) ? size : SUBSYSTEM_MAX_SUBSYSTEMS;
+                        }
+                        //return false; //TODO: Remove when implemented!
+                    break;
+                    case Environment.RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
+                        retro_memory_map* map = (retro_memory_map*)data;
+                        descriptors = new retro_memory_descriptor[map->num_descriptors];
+                        for (uint j = 0; j < map->num_descriptors; j++)
+                        {
+                            descriptors[j].flags = map->descriptors[j].flags;
+                            descriptors[j].ptr = map->descriptors[j].ptr;
+                            descriptors[j].offset = map->descriptors[j].offset;
+                            descriptors[j].start = map->descriptors[j].start;
+                            descriptors[j].select = map->descriptors[j].select;
+                            descriptors[j].disconnect = map->descriptors[j].disconnect;
+                            descriptors[j].len = map->descriptors[j].len;
+                            descriptors[j].addrspace = map->descriptors[j].addrspace;
+                            //Debug.Log("Descriptor " + j + "= " + descriptors[j].start.ToString("X") + ", Length = " + descriptors[j].len.ToString("X"));
+                        }
+                        break;
+                    case Environment.RETRO_ENVIRONMENT_SET_GEOMETRY:
+                        if (initialized)
+                        {
+                            Geometry* inGeometry = (Geometry*)data;
+                            if (_av.geometry.base_width != inGeometry->base_width
+                            || _av.geometry.base_height != inGeometry->base_height
+                            || _av.geometry.aspect_ratio != inGeometry->aspect_ratio)
+                            {
+                                _av.geometry = *inGeometry;
+                                // TODO: Set video aspect ratio
+                            }
+                        }
+                        break;
+                    case Environment.RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL:
+                        retro_core_options_intl inOptionsIntl = Marshal.PtrToStructure<retro_core_options_intl>((IntPtr)data);
+
+                        coreOptions = _coreOptionsList.Cores.Find(x => x.CoreName.Equals(coreName, StringComparison.OrdinalIgnoreCase));
+                        if (coreOptions == null)
+                        {
+                            coreOptions = new CoreOptions { CoreName = coreName };
+                            _coreOptionsList.Cores.Add(coreOptions);
+                        }
+
+                        for (int l = 0; l < RETRO_NUM_CORE_OPTION_VALUES_MAX; l++)
+                        {
+                            IntPtr ins = new IntPtr(inOptionsIntl.us.ToInt64() + l * Marshal.SizeOf<retro_core_option_definition>());
+                            retro_core_option_definition defs = Marshal.PtrToStructure<retro_core_option_definition>(ins);
+                            if (defs.key == null)
+                            {
+                                break;
+                            }
+
+                            string bkey = Marshal.PtrToStringAnsi((IntPtr)defs.key);
+
+                            string coreOption = coreOptions.Options.Find(x => x.StartsWith(bkey, StringComparison.OrdinalIgnoreCase));
+                            if (coreOption == null)
+                            {
+                                string defaultValue = CharsToString(defs.default_value);
+
+                                List<string> possibleValues = new List<string>();
+                                for (int j = 0; j < defs.values.Length; j++)
+                                {
+                                    retro_core_option_value val = defs.values[j];
+                                    if (val.value != null)
+                                    {
+                                        possibleValues.Add(CharsToString(val.value));
+                                    }
+                                }
+
+                                string value = string.Empty;
+                                if (!string.IsNullOrEmpty(defaultValue))
+                                {
+                                    value = defaultValue;
+                                }
+                                else if (possibleValues.Count > 0)
+                                {
+                                    value = possibleValues[0];
+                                }
+
+                                coreOption = $"{bkey};{value};{string.Join("|", possibleValues)}";
+
+                                coreOptions.Options.Add(coreOption);
+                            }
+                        }
+
+                        SaveCoreOptionsFile();
                         break;
                     default:
                         return false;
@@ -562,9 +976,54 @@ namespace RetroUnity {
                 return true;
             }
 
+            private string CoreOptionsFile = Application.streamingAssetsPath + "/Options.txt";
+            private void LoadCoreOptionsFile()
+            {
+                _coreOptionsList = DeserializeFromJson<CoreOptionsList>(CoreOptionsFile);
+                if (_coreOptionsList == null) {_coreOptionsList = new CoreOptionsList();}
+            }
+
+            private void SaveCoreOptionsFile()
+            {
+                for (int i = 0; i < _coreOptionsList.Cores.Count; i++)
+                {
+                    _coreOptionsList.Cores[i].Options.Sort();
+                }
+                _ = SerializeToJson(_coreOptionsList, CoreOptionsFile);
+            }
+
+            public static bool SerializeToJson<T>(T sourceObject, string targetPath)
+            {
+                bool result = false;
+
+                try{
+                    string jsonString = UnityEngine.JsonUtility.ToJson(sourceObject, true);
+                    File.WriteAllText(targetPath, jsonString);
+                    result = true;
+                }
+                catch (Exception e){Debug.LogError(e);}
+                return result;
+            }
+
+            public static T DeserializeFromJson<T>(string sourcePath) where T : class
+            {
+                T result = null;
+                try{
+                    string jsonString = File.ReadAllText(sourcePath);
+                    result = UnityEngine.JsonUtility.FromJson<T>(jsonString);
+                }
+                catch (Exception e){Debug.LogError(e);}
+                return result;
+            }
+
             private static unsafe char* StringToChar(string s) {
                 IntPtr p = Marshal.StringToHGlobalUni(s);
                 return (char*) p.ToPointer();
+            }
+
+            private static unsafe string CharsToString(char* value)
+            {
+                return Marshal.PtrToStringAnsi((IntPtr)value);
             }
 
             private unsafe GameInfo LoadGameInfo(string file) {
@@ -609,6 +1068,7 @@ namespace RetroUnity {
                 Debug.Log("Geometry:");
                 Debug.Log("Target fps: " + _av.timing.fps);
                 Debug.Log("Sample rate " + _av.timing.sample_rate);
+
                 return ret;
             }
 
