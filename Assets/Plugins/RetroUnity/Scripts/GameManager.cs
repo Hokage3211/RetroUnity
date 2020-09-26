@@ -11,8 +11,11 @@ namespace RetroUnity {
         private string STATEPath = "";
         private LibretroWrapper.Wrapper wrapper;
 
-        private float _frameTimer;
-        public float targetFPS = 50.99986f;
+        private double _frameTimer;
+        public float targetFPS = 50.987f;
+
+        public bool overrideSpeed = false;
+        public int boostedFPS = 60;
 
         public Renderer Display;
 
@@ -30,17 +33,18 @@ namespace RetroUnity {
                 LoadRom(path, corePath);
         }
 
-        public void LoadGame(string path)
-        {
-            LoadRom(path);
-        }
-
         private void Update() {
             if (gameLoaded) {
                 _frameTimer += Time.deltaTime;
-                float timePerFrame = 1 / targetFPS;
+                double timePerFrame = 1 / targetFPS;
                 if (!double.IsNaN(wrapper.GetAVInfo().timing.fps))
-                    timePerFrame = 1f / (float)wrapper.GetAVInfo().timing.fps;
+                {
+                    timePerFrame = 1 / wrapper.GetAVInfo().timing.fps;
+                    targetFPS = (float)wrapper.GetAVInfo().timing.fps;
+                }
+
+                if (overrideSpeed)
+                    timePerFrame = 1f / boostedFPS;
 
                 while (_frameTimer >= timePerFrame)
                 {
@@ -52,30 +56,37 @@ namespace RetroUnity {
                     saveState();
                 else if (Input.GetKeyDown(KeyCode.H))
                     loadState();
+                else if (Input.GetKeyDown(KeyCode.J))
+                    unloadROM();
+
+                if (LibretroWrapper.tex != null)
+                {
+                    Display.material.mainTexture = LibretroWrapper.tex;
+                }
             }
-            if (LibretroWrapper.tex != null) {
-                Display.material.mainTexture = LibretroWrapper.tex;
-            }
+            
             if (Input.GetKeyDown(KeyCode.PageUp))
             {
                 loadGame();
             }
         }
 
-        public void LoadRom(string path, string corePath = "") {
+        public void LoadRom(string romPath, string corePath = "") {
+            if (gameLoaded)
+                unloadROM();
 
-            RAMPath = path.Substring(0, path.LastIndexOf('.'));
+            RAMPath = romPath.Substring(0, romPath.LastIndexOf('.'));
             STATEPath = RAMPath + ".state";
             RAMPath += ".srm";
-            STATEPath = STATEPath.Insert(STATEPath.LastIndexOf("/"), "/States");
-            RAMPath = RAMPath.Insert(RAMPath.LastIndexOf("/"), "/RAM");
+            STATEPath = STATEPath.Insert(STATEPath.LastIndexOf("/"), "/SaveStates");
+            RAMPath = RAMPath.Insert(RAMPath.LastIndexOf("/"), "/RAMSaves");
 
 #if !UNITY_ANDROID || UNITY_EDITOR
             // Doesn't work on Android because you can't do File.Exists in StreamingAssets folder.
             // Should figure out a different way to perform check later.
             // If the file doesn't exist the application gets stuck in a loop.
-            if (!File.Exists(path)) {
-                Debug.LogError(path + " not found.");
+            if (!File.Exists(romPath)) {
+                Debug.LogError(romPath + " not found.");
                 return;
             }
 #endif
@@ -87,12 +98,12 @@ namespace RetroUnity {
                 wrapper = new LibretroWrapper.Wrapper(corePath);
 
             wrapper.Init();
-            wrapper.LoadGame(path);
+
+            bool returned = wrapper.LoadGame(romPath);
             if (RAMPath != null)
                 wrapper.LoadRAM(RAMPath);
 
-            gameLoaded = true;
-            wrapper.initialized = true;
+            gameLoaded = returned;
         }
 
         public void saveState()
@@ -106,16 +117,21 @@ namespace RetroUnity {
         }
 
         private void OnDestroy() {
-            if (RAMPath != null && wrapper != null)
+            unloadROM();
+        }
+
+        public void unloadROM()
+        {
+            if (RAMPath != null && RAMPath != "" && wrapper != null)
             {
                 wrapper.SaveRAM(RAMPath);
                 wrapper.DeInit();
-                wrapper.initialized = false;
             }
             WindowsDLLHandler.Instance.UnloadCore();
-
+            Display.material.mainTexture = null;
+            RAMPath = "";
+            STATEPath = "";
             gameLoaded = false;
-            
         }
     }
 }

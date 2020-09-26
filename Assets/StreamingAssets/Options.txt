@@ -16,20 +16,10 @@
             ]
         },
         {
-            "CoreName": "Gearsystem",
-            "Options": [
-                "gearsystem_mapper;ROM Only;Auto|ROM Only|SEGA|Codemasters|Korean|SG-1000;",
-                "gearsystem_region;Auto;Auto|Master System Japan|Master System Export|Game Gear Japan|Game Gear Export|Game Gear International;",
-                "gearsystem_system;Auto;Auto|Master System / Mark III|Game Gear|SG-1000 / Multivision;",
-                "gearsystem_timing;NTSC (60 Hz);Auto|NTSC (60 Hz)|PAL (50 Hz);",
-                "gearsystem_up_down_allowed;Disabled;Disabled|Enabled;"
-            ]
-        },
-        {
             "CoreName": "Snes9x",
             "Options": [
                 "snes9x_aspect;4:3;4:3|uncorrected|auto|ntsc|pal",
-                "snes9x_audio_interpolation;gaussian;gaussian|cubic|sinc|none|linear",
+                "snes9x_audio_interpolation;false;gaussian|cubic|sinc|none|linear",
                 "snes9x_blargg;disabled;disabled|monochrome|rf|composite|s-video|rgb",
                 "snes9x_block_invalid_vram_access;enabled;enabled|disabled",
                 "snes9x_echo_buffer_hack;disabled;disabled|enabled",
@@ -69,6 +59,67 @@
                 "snes9x_superscope_crosshair;2;0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16",
                 "snes9x_superscope_reverse_buttons;disabled;disabled|enabled",
                 "snes9x_up_down_allowed;disabled;disabled|enabled"
+            ]
+        },
+        {
+            "CoreName": "QuickNES",
+            "Options": [
+                "quicknes_aspect_ratio_par;PAR;PAR|4:3",
+                "quicknes_audio_eq;default;default|famicom|tv|flat|crisp|tinny",
+                "quicknes_audio_nonlinear;nonlinear;nonlinear|linear|stereo panning",
+                "quicknes_no_sprite_limit;disabled;disabled|enabled",
+                "quicknes_palette;default;default|asqrealc|nintendo-vc|rgb|yuv-v3|unsaturated-final|sony-cxa2025as-us|pal|bmf-final2|bmf-final3|smooth-fbx|composite-direct-fbx|pvm-style-d93-fbx|ntsc-hardware-fbx|nes-classic-fbx-fs|nescap|wavebeam",
+                "quicknes_turbo_enable;none;none|player 1|player 2|both",
+                "quicknes_turbo_pulse_width;3;1|2|3|5|10|15|30|60",
+                "quicknes_up_down_allowed;disabled;disabled|enabled",
+                "quicknes_use_overscan_h;enabled;enabled|disabled",
+                "quicknes_use_overscan_v;disabled;disabled|enabled"
+            ]
+        },
+        {
+            "CoreName": "VBA-M",
+            "Options": [
+                "vbam_allowcolorizerhack;disabled;disabled|enabled",
+                "vbam_astick_deadzone;15;0|5|10|15|20|25|30",
+                "vbam_forceRTCenable;disabled;disabled|enabled",
+                "vbam_gbcoloroption;disabled;disabled|enabled",
+                "vbam_gbHardware;gbc;gbc|auto|sgb|gb|gba|sgb2",
+                "vbam_gyro_sensitivity;100;10|15|20|25|30|35|40|45|50|55|60|65|70|75|80|85|90|95|100|105|110|115|120",
+                "vbam_interframeblending;disabled;disabled|smart|motion blur",
+                "vbam_layer_1;enabled;disabled|enabled",
+                "vbam_layer_2;enabled;disabled|enabled",
+                "vbam_layer_3;enabled;disabled|enabled",
+                "vbam_layer_4;enabled;disabled|enabled",
+                "vbam_layer_5;enabled;disabled|enabled",
+                "vbam_layer_6;enabled;disabled|enabled",
+                "vbam_layer_7;enabled;disabled|enabled",
+                "vbam_layer_8;enabled;disabled|enabled",
+                "vbam_lcdfilter;disabled;disabled|enabled",
+                "vbam_palettes;standard;black and white|blue sea|dark knight|green forest|hot desert|pink dreams|wierd colors|original gameboy|gba sp",
+                "vbam_show_advanced_options;disabled;disabled|enabled",
+                "vbam_showborders;disabled;disabled|enabled|auto",
+                "vbam_solarsensor;0;0|1|2|3|4|5|6|7|8|9|10",
+                "vbam_sound_1;enabled;disabled|enabled",
+                "vbam_sound_2;enabled;disabled|enabled",
+                "vbam_sound_3;enabled;disabled|enabled",
+                "vbam_sound_4;enabled;disabled|enabled",
+                "vbam_sound_5;enabled;disabled|enabled",
+                "vbam_sound_6;enabled;disabled|enabled",
+                "vbam_soundfiltering;5;0|1|2|3|4|5|6|7|8|9|10",
+                "vbam_soundinterpolation;enabled;disabled|enabled",
+                "vbam_swap_astick;disabled;disabled|enabled",
+                "vbam_tilt_sensitivity;100;10|15|20|25|30|35|40|45|50|55|60|65|70|75|80|85|90|95|100|105|110|115|120",
+                "vbam_turbodelay;3;1|2|3|4|5|6|7|8|9|10|11|12|13|14|15",
+                "vbam_turboenable;enabled;disabled|enabled",
+                "vbam_usebios;disabled;disabled|enabled"
+            ]
+        },
+        {
+            "CoreName": "VBA Next",
+            "Options": [
+                "vbanext_bios;enabled;enabled|disabled",
+                "vbanext_turbodelay;2;1|2|3|4|5|6|7|8|9|10|11|12|13|14|15",
+                "vbanext_turboenable;disabled;disabled|enabled"
             ]
         }
     ]

@@ -369,10 +369,25 @@ namespace RetroUnity {
                 Libretro.RetroSetInputState(_inputState);
 
                 Libretro.RetroInit();
+
+                initialized = true;
             }
 
             public void DeInit()
             {
+                unsafe
+                {
+                    Src = null;
+                    Dst = null;
+                }
+                LibretroWrapper.h = 0;
+                LibretroWrapper.w = 0;
+                initialized = false;
+                preppingAudio = true;
+                tillReadAudio = tillReadAudioDefault;
+                _speaker.stopAudio();
+                tex = null;
+                lastSafeNumber = 0;
                 Libretro.RetroDeInit();
             }
 
@@ -389,6 +404,7 @@ namespace RetroUnity {
                 return _frameBuffer;
             }
 
+            private int lastSafeNumber = 0;
             private unsafe void RetroVideoRefresh(void* data, uint width, uint height, uint pitch) {
 
                 // Process Pixels one by one for now...this is not the best way to do it 
@@ -415,6 +431,10 @@ namespace RetroUnity {
                         LibretroWrapper.w = Convert.ToInt32(width);
                         LibretroWrapper.h = Convert.ToInt32(height);
                         if (tex == null) {
+                            tex = new Texture2D(LibretroWrapper.w, LibretroWrapper.h, TextureFormat.RGB565, false);
+                        }
+                        if (tex.format != TextureFormat.RGB565 || tex.width != LibretroWrapper.w || tex.height != LibretroWrapper.h)
+                        {
                             tex = new Texture2D(LibretroWrapper.w, LibretroWrapper.h, TextureFormat.RGB565, false);
                         }
                         LibretroWrapper.p = Convert.ToInt32(pitch);
@@ -474,6 +494,11 @@ namespace RetroUnity {
                         if (tex == null) {
                             tex = new Texture2D(LibretroWrapper.w, LibretroWrapper.h, TextureFormat.RGB565, false);
                         }
+                        if (tex.format != TextureFormat.RGB565 || tex.width != LibretroWrapper.w || tex.height != LibretroWrapper.h)
+                        {
+                            tex = new Texture2D(LibretroWrapper.w, LibretroWrapper.h, TextureFormat.RGB565, false);
+                        }
+
                         LibretroWrapper.p = Convert.ToInt32(pitch);
                         int srcsize565 = 2 * (LibretroWrapper.p * LibretroWrapper.h);
                         int dstsize565 = 2 * (LibretroWrapper.w * LibretroWrapper.h);
@@ -481,7 +506,29 @@ namespace RetroUnity {
                             Src = new byte[srcsize565];
                         if (Dst == null || Dst.Length != dstsize565)
                             Dst = new byte[dstsize565];
-                        Marshal.Copy(imagedata565, Src, 0, srcsize565);
+
+                        //Marshal.Copy(imagedata565, Src, 0, srcsize565);
+                        if (lastSafeNumber != 0)
+                        {
+                            Marshal.Copy(imagedata565, Src, 0, lastSafeNumber);
+                            //for (int pt = 0; pt < lastSafeNumber; pt++)
+                            //{
+                            //    Src[pt] = ((byte*)data)[pt];
+                            //}
+                        }
+                        try
+                        {
+                            for (int pt = 0; pt < srcsize565; pt++)
+                            {
+                                Src[pt] = ((byte*)data)[pt];
+                                lastSafeNumber = pt;
+                            }
+                        }
+                        catch (Exception e)
+                        {
+                            //catch out of bounds
+                        }
+
                         int m565 = 0;
                         for (int y = 0; y < LibretroWrapper.h; y++) {
                             for (int k = 0 * 2 + y * LibretroWrapper.p; k < LibretroWrapper.w * 2 + y * LibretroWrapper.p; k++) {
@@ -492,6 +539,7 @@ namespace RetroUnity {
                         tex.LoadRawTextureData(Dst);
                         tex.filterMode = FilterMode.Trilinear;
                         tex.Apply();
+
                         break;
                     case PixelFormat.RetroPixelFormatUnknown:
                         Debug.LogWarning("Unknown Pixel Format!");
@@ -504,6 +552,7 @@ namespace RetroUnity {
 
             private void RetroAudioSample(short left, short right) {
                 //// Unused.
+                Debug.Log("Audio sample called!");
                 //if (initialized)
                 //{
                 //    float value = left * -0.000030517578125f;
@@ -516,26 +565,17 @@ namespace RetroUnity {
                 //}
             }
 
-            bool prepAudio = false;
-            int tillReadAudio = 0;
+            bool preppingAudio = true;
+            const int tillReadAudioDefault = 2;
+            int tillReadAudio = tillReadAudioDefault;
             private unsafe void RetroAudioSampleBatch(short* data, uint frames) {
                 if (initialized)
                 {
-                    if (!prepAudio)
-                    {
-                        for (int i = 0; i < frames * 2 && !prepAudio; ++i)
-                        {
-                            if (data[i] * 0.000030517578125f >= 0.05) //wait till populated valid data is sent through
-                            {
-                                prepAudio = true;
-                                _speaker.startAudio();
-                            }
-                        }
-                    }
-                    if (prepAudio)
+                    if (!preppingAudio)
                     {
                         if (tillReadAudio <= 0)
                         {
+                            
                             for (int i = 0; i < frames * 2; ++i)
                             {
                                 float value = data[i] * 0.000030517578125f;
@@ -544,7 +584,22 @@ namespace RetroUnity {
                             }
                         }
                         else
+                        {
                             tillReadAudio--;
+                            if (tillReadAudio == 0)
+                                if (!_speaker.audioSource.isPlaying)
+                                    _speaker.startAudio();
+                        }
+                    }
+                    else if (preppingAudio)
+                    {
+                        for (int i = 0; i < frames * 2 && preppingAudio; ++i)
+                        {
+                            if (data[i] * 0.000030517578125f >= 0.05) //wait till populated valid data is sent through
+                            {
+                                preppingAudio = false;
+                            }
+                        }
                     }
                 }
             }
@@ -575,14 +630,6 @@ namespace RetroUnity {
                         bool* outCanDupe = (bool*)data;
                         *outCanDupe = true;
                         break;
-                    //case Environment.RetroEnvironmentSetMessage:
-                    //    break;
-                    //case Environment.RetroEnvironmentSetRotation:
-                    //    break;
-                    //case Environment.RetroEnvironmentShutdown:
-                    //    break;
-                    //case Environment.RetroEnvironmentSetPerformanceLevel:
-                    //    break;
                     case Environment.RetroEnvironmentGetSystemDirectory:
                         char** array = (char**)data;
                         string systemDirectory = Application.streamingAssetsPath + "/" + "System";
@@ -616,9 +663,10 @@ namespace RetroUnity {
                             string coreOption = coreOptions.Options.Find(x => x.StartsWith(key, StringComparison.OrdinalIgnoreCase));
                             if (coreOption != null)
                             {
-                                if (key == "snes9x_audio_interpolation") //weird hack that fixes pitchy base noise in SNES super mario world?
+                                string option = coreOption.Split(';')[1];
+                                if (option == "false") //a quick way of letting users return false, giving default behaviour which seems to be innaccesable using real variable settings
                                     return false;
-                                outVariable->value = StringToChar(coreOption.Split(';')[1]);
+                                outVariable->value = StringToChar(option);
                             }
                             else
                             {
@@ -642,7 +690,7 @@ namespace RetroUnity {
                         break;
                     case Environment.RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
                         char** saveStr = (char**)data;
-                        string savDir = Application.streamingAssetsPath + "/" + "SaveDirectory";
+                        string savDir = Application.streamingAssetsPath + "/" + "SvDirectory";
                         *saveStr = StringToChar(savDir);
                         break;
                     case Environment.RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
@@ -798,24 +846,24 @@ namespace RetroUnity {
 
                             subsystem_current_count = (size <= SUBSYSTEM_MAX_SUBSYSTEMS) ? size : SUBSYSTEM_MAX_SUBSYSTEMS;
                         }
-                        //return false; //TODO: Remove when implemented!
+                        //return false; //unsure if this does much yet
                     break;
-                    case Environment.RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
-                        retro_memory_map* map = (retro_memory_map*)data;
-                        descriptors = new retro_memory_descriptor[map->num_descriptors];
-                        for (uint j = 0; j < map->num_descriptors; j++)
-                        {
-                            descriptors[j].flags = map->descriptors[j].flags;
-                            descriptors[j].ptr = map->descriptors[j].ptr;
-                            descriptors[j].offset = map->descriptors[j].offset;
-                            descriptors[j].start = map->descriptors[j].start;
-                            descriptors[j].select = map->descriptors[j].select;
-                            descriptors[j].disconnect = map->descriptors[j].disconnect;
-                            descriptors[j].len = map->descriptors[j].len;
-                            descriptors[j].addrspace = map->descriptors[j].addrspace;
-                            //Debug.Log("Descriptor " + j + "= " + descriptors[j].start.ToString("X") + ", Length = " + descriptors[j].len.ToString("X"));
-                        }
-                        break;
+                    //case Environment.RETRO_ENVIRONMENT_SET_MEMORY_MAPS: //does nothing yet, but this was example code shown
+                    //    retro_memory_map* map = (retro_memory_map*)data;
+                    //    descriptors = new retro_memory_descriptor[map->num_descriptors];
+                    //    for (uint j = 0; j < map->num_descriptors; j++)
+                    //    {
+                    //        descriptors[j].flags = map->descriptors[j].flags;
+                    //        descriptors[j].ptr = map->descriptors[j].ptr;
+                    //        descriptors[j].offset = map->descriptors[j].offset;
+                    //        descriptors[j].start = map->descriptors[j].start;
+                    //        descriptors[j].select = map->descriptors[j].select;
+                    //        descriptors[j].disconnect = map->descriptors[j].disconnect;
+                    //        descriptors[j].len = map->descriptors[j].len;
+                    //        descriptors[j].addrspace = map->descriptors[j].addrspace;
+                    //        //Debug.Log("Descriptor " + j + "= " + descriptors[j].start.ToString("X") + ", Length = " + descriptors[j].len.ToString("X"));
+                    //    }
+                    //    break;
                     case Environment.RETRO_ENVIRONMENT_SET_GEOMETRY:
                         if (initialized)
                         {
@@ -978,7 +1026,7 @@ namespace RetroUnity {
                 Debug.Log("Max width: " + _av.geometry.max_width);
                 Debug.Log("Max height: " + _av.geometry.max_height);
                 Debug.Log("Aspect ratio: " + _av.geometry.aspect_ratio);
-                Debug.Log("Geometry:");
+                Debug.Log("Timing:");
                 Debug.Log("Target fps: " + _av.timing.fps);
                 Debug.Log("Sample rate " + _av.timing.sample_rate);
 
