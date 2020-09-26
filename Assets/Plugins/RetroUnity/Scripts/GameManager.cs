@@ -67,6 +67,8 @@ namespace RetroUnity {
             RAMPath = path.Substring(0, path.LastIndexOf('.'));
             STATEPath = RAMPath + ".state";
             RAMPath += ".srm";
+            STATEPath = STATEPath.Insert(STATEPath.LastIndexOf("/"), "/States");
+            RAMPath = RAMPath.Insert(RAMPath.LastIndexOf("/"), "/RAM");
 
 #if !UNITY_ANDROID || UNITY_EDITOR
             // Doesn't work on Android because you can't do File.Exists in StreamingAssets folder.
