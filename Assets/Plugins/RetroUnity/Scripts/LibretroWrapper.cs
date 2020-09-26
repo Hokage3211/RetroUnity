@@ -297,6 +297,7 @@ namespace RetroUnity {
             public const uint RETRO_ENVIRONMENT_SET_SUBSYSTEM_INFO = 34;
             public const uint RETRO_ENVIRONMENT_SET_MEMORY_MAPS = 36 | RETRO_ENVIRONMENT_EXPERIMENTAL;
             public const uint RETRO_ENVIRONMENT_SET_GEOMETRY = 37;
+            public const uint RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE = (41 | RETRO_ENVIRONMENT_EXPERIMENTAL);
             public const uint RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE = 47 | RETRO_ENVIRONMENT_EXPERIMENTAL;
             public const uint RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION = 52;
             public const uint RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL = 54;
@@ -307,6 +308,7 @@ namespace RetroUnity {
             public static List<float> AudioBatch = new List<float>(65536);
             public static int BatchPosition;
             private PixelFormat _pixelFormat;
+            private retro_hw_render_callback render_callback;
             private bool _requiresFullPath;
             private SystemAVInfo _av;
             private Pixel[] _frameBuffer;
@@ -398,6 +400,154 @@ namespace RetroUnity {
 
             public SystemAVInfo GetAVInfo() {
                 return _av;
+            }
+
+            // GL
+            const uint GL_FRAMEBUFFER = 0x8D40;
+            const uint GL_TEXTURE_2D = 0x0DE1;
+            const uint GL_RGBA8 = 0x8058;
+            const uint GL_COLOR_ATTACHMENT0 = 0x8CE0;
+            const uint GL_RENDERBUFFER = 0x8D41;
+            const uint GL_DEPTH_COMPONENT16 = 0x81A5;
+            const uint GL_DEPTH_ATTACHMENT = 0x8D00;
+            const uint GL_FRAMEBUFFER_COMPLETE = 0x8CD5;
+            const uint GL_FRAMEBUFFER_UNDEFINED = 0x8219;
+            const uint GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT = 0x8CD6;
+            const uint GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT = 0x8CD7;
+            const uint GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER = 0x8CDB;
+            const uint GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER = 0x8CDC;
+            const uint GL_FRAMEBUFFER_UNSUPPORTED = 0x8CDD;
+            const uint GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE = 0x8D56;
+            const uint GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS = 0x8DA8;
+            const uint GL_COLOR_BUFFER_BIT = 0x00004000;
+            const uint GL_DEPTH_BUFFER_BIT = 0x00000100;
+
+            [DllImport("glfw3")] static extern IntPtr glfwGetProcAddress(string procname);
+            [DllImport("glfw3")] static extern bool glfwInit();
+            [DllImport("glfw3")] static extern void glfwTerminate();
+            [DllImport("glfw3")] static extern IntPtr glfwCreateWindow(int width, int height, string title, IntPtr monitor, IntPtr share);
+            [DllImport("glfw3")] static extern void glfwDestroyWindow(IntPtr window);
+            [DllImport("glfw3")] static extern void glfwMakeContextCurrent(IntPtr window);
+            [DllImport("glfw3")] static extern bool glfwWindowShouldClose(IntPtr window);
+            [DllImport("glfw3")] static extern void glfwPollEvents();
+            [DllImport("glfw3")] static extern void glfwSwapBuffers(IntPtr window);
+
+            bool _glSupport = false;
+
+            unsafe delegate void glGenFramebuffers_f(int n, uint* ids);
+            delegate void glBindFramebuffer_f(uint target, uint framebuffer);
+            unsafe delegate void glGenTextures_f(uint n, uint* textures);
+            delegate void glBindTexture_f(uint target, uint texture);
+            delegate void glTexStorage2D_f(uint target, int levels, uint internalformat, int width, int height);
+            delegate void glFramebufferTexture2D_f(uint target, uint attachment, uint textarget, uint texture, int level);
+            unsafe delegate void glGenRenderbuffers_f(int n, uint* renderbuffers);
+            delegate void glBindRenderbuffer_f(uint target, uint renderbuffer);
+            delegate void glRenderbufferStorage_f(uint target, uint internalformat, int width, int height);
+            delegate void glFramebufferRenderbuffer_f(uint target, uint attachment, uint renderbuffertarget, uint renderbuffer);
+            delegate uint glCheckFramebufferStatus_f(uint target);
+            delegate void glClear_f(uint flags);
+
+            glGenFramebuffers_f glGenFramebuffers;
+            glBindFramebuffer_f glBindFramebuffer;
+            glGenTextures_f glGenTextures;
+            glBindTexture_f glBindTexture;
+            glTexStorage2D_f glTexStorage2D;
+            glFramebufferTexture2D_f glFramebufferTexture2D;
+            glGenRenderbuffers_f glGenRenderbuffers;
+            glBindRenderbuffer_f glBindRenderbuffer;
+            glRenderbufferStorage_f glRenderbufferStorage;
+            glFramebufferRenderbuffer_f glFramebufferRenderbuffer;
+            glCheckFramebufferStatus_f glCheckFramebufferStatus;
+            glClear_f glClear;
+
+            IntPtr GetProcAddress(string procname) => glfwGetProcAddress(procname);
+            IntPtr _windowHandle;
+            retro_hw_render_callback _hwRenderCallback;
+            readonly uint[] _framebuffers = new uint[32];
+            readonly uint[] _renderbuffers = new uint[32];
+            readonly uint[] _textures = new uint[32];
+
+            Libretro.retro_hw_get_current_framebuffer_t _videoDriverGetCurrentFrameBufferCallback;
+            Libretro.retro_hw_get_proc_address_t _videoDriverGetProcAddressCallback;
+
+            uint VideoDriverGetCurrentFrameBuffer() => _framebuffers[0];
+
+            private unsafe void InitGL()
+            {
+                if (!glfwInit())
+                {
+                    _glSupport = false;
+                    return;
+                }
+
+                _windowHandle = glfwCreateWindow(640, 480, "Testing", IntPtr.Zero, IntPtr.Zero);
+                if (_windowHandle == IntPtr.Zero)
+                {
+                    _glSupport = false;
+                    glfwTerminate();
+                    return;
+                }
+
+                glfwMakeContextCurrent(_windowHandle);
+
+                glGenFramebuffers = Marshal.GetDelegateForFunctionPointer<glGenFramebuffers_f>(glfwGetProcAddress("glGenFramebuffers"));
+                glBindFramebuffer = Marshal.GetDelegateForFunctionPointer<glBindFramebuffer_f>(glfwGetProcAddress("glBindFramebuffer"));
+                glGenTextures = Marshal.GetDelegateForFunctionPointer<glGenTextures_f>(glfwGetProcAddress("glGenTextures"));
+                glBindTexture = Marshal.GetDelegateForFunctionPointer<glBindTexture_f>(glfwGetProcAddress("glBindTexture"));
+                glTexStorage2D = Marshal.GetDelegateForFunctionPointer<glTexStorage2D_f>(glfwGetProcAddress("glTexStorage2D"));
+                glFramebufferTexture2D = Marshal.GetDelegateForFunctionPointer<glFramebufferTexture2D_f>(glfwGetProcAddress("glFramebufferTexture2D"));
+                glGenRenderbuffers = Marshal.GetDelegateForFunctionPointer<glGenRenderbuffers_f>(glfwGetProcAddress("glGenRenderbuffers"));
+                glBindRenderbuffer = Marshal.GetDelegateForFunctionPointer<glBindRenderbuffer_f>(glfwGetProcAddress("glBindRenderbuffer"));
+                glRenderbufferStorage = Marshal.GetDelegateForFunctionPointer<glRenderbufferStorage_f>(glfwGetProcAddress("glRenderbufferStorage"));
+                glFramebufferRenderbuffer = Marshal.GetDelegateForFunctionPointer<glFramebufferRenderbuffer_f>(glfwGetProcAddress("glFramebufferRenderbuffer"));
+                glCheckFramebufferStatus = Marshal.GetDelegateForFunctionPointer<glCheckFramebufferStatus_f>(glfwGetProcAddress("glCheckFramebufferStatus"));
+                glClear = Marshal.GetDelegateForFunctionPointer<glClear_f>(glfwGetProcAddress("glClear"));
+
+                fixed (uint* ptr = _framebuffers)
+                {
+                    glGenFramebuffers(1, ptr);
+                }
+
+                glBindFramebuffer(GL_FRAMEBUFFER, _framebuffers[0]);
+
+                fixed (uint* ptr = _textures)
+                {
+                    glGenTextures(1, ptr);
+                }
+
+                glBindTexture(GL_TEXTURE_2D, _textures[0]);
+                glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, 640, 480);
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, _textures[0], 0);
+
+                fixed (uint* ptr = _renderbuffers)
+                {
+                    glGenRenderbuffers(1, ptr);
+                }
+
+                glBindRenderbuffer(GL_RENDERBUFFER, _renderbuffers[0]);
+                glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, 640, 480);
+                glBindRenderbuffer(GL_RENDERBUFFER, 0);
+                glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, _renderbuffers[0]);
+
+                uint status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+                if (status != GL_FRAMEBUFFER_COMPLETE)
+                {
+                    _glSupport = false;
+                    _windowHandle = IntPtr.Zero;
+                    glfwDestroyWindow(_windowHandle);
+                    glfwTerminate();
+                    return;
+                }
+
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+                glBindTexture(GL_TEXTURE_2D, 0);
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+                _videoDriverGetCurrentFrameBufferCallback = VideoDriverGetCurrentFrameBuffer;
+                _videoDriverGetProcAddressCallback = glfwGetProcAddress;
+
+                _glSupport = true;
             }
 
             public Pixel[] GetFramebuffer() {
@@ -604,7 +754,6 @@ namespace RetroUnity {
                 }
             }
 
-
             public CoreOptions coreOptions;
             private CoreOptionsList _coreOptionsList;
             public retro_memory_descriptor[] descriptors;
@@ -648,6 +797,13 @@ namespace RetroUnity {
                             case PixelFormat.RetroPixelFormatUnknown:
                                 break;
                         }
+                        break;
+                    case Environment.RETRO_ENVIRONMENT_SET_HW_RENDER:
+                        Debug.Log("Envrionment: Called HW Render!");
+                        InitGL();
+                        render_callback = *((retro_hw_render_callback*)data);
+                        (*(retro_hw_render_callback*)data).get_current_framebuffer = Marshal.GetFunctionPointerForDelegate(_videoDriverGetCurrentFrameBufferCallback);
+                        (*(retro_hw_render_callback*)data).get_proc_address = Marshal.GetFunctionPointerForDelegate(_videoDriverGetProcAddressCallback);
                         break;
                     //case Environment.RetroEnvironmentSetKeyboardCallback:
                     //    break;
@@ -932,6 +1088,7 @@ namespace RetroUnity {
                         SaveCoreOptionsFile();
                         break;
                     default:
+                        Debug.Log("Command not implemented: #" + cmd);
                         return false;
                 }
                 return true;
@@ -1124,13 +1281,23 @@ namespace RetroUnity {
 
             [UnmanagedFunctionPointer(CallingConvention.StdCall)]
             public delegate bool RetroLoadGameDelegate(ref GameInfo game);
-
             public static RetroLoadGameDelegate RetroLoadGame;
+
+            [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+            public delegate bool RetroUnloadGameDelegate();
+            public static RetroUnloadGameDelegate RetroUnloadGame;
 
             [UnmanagedFunctionPointer(CallingConvention.StdCall)]
             public delegate void RetroSetVideoRefreshDelegate(RetroVideoRefreshDelegate r);
 
             public static RetroSetVideoRefreshDelegate RetroSetVideoRefresh;
+
+            // typedef void (RETRO_CALLCONV* retro_hw_context_reset_t) (void);
+            public delegate void retro_hw_context_reset_t();
+            // typedef uintptr_t(RETRO_CALLCONV* retro_hw_get_current_framebuffer_t)(void);
+            public delegate uint retro_hw_get_current_framebuffer_t();
+            // typedef retro_proc_address_t(RETRO_CALLCONV* retro_hw_get_proc_address_t)(const char* sym);
+            public delegate IntPtr retro_hw_get_proc_address_t([MarshalAs(UnmanagedType.LPStr)] string sym);
 
             [UnmanagedFunctionPointer(CallingConvention.StdCall)]
             public delegate void RetroSetAudioSampleDelegate(RetroAudioSampleDelegate r);
@@ -1223,6 +1390,7 @@ namespace RetroUnity {
                 RetroGetSystemInfo = dllHandler.GetMethod<RetroGetSystemInfoDelegate>("retro_get_system_info");
                 RetroGetSystemAVInfo = dllHandler.GetMethod<RetroGetSystemAVInfoDelegate>("retro_get_system_av_info");
                 RetroLoadGame = dllHandler.GetMethod<RetroLoadGameDelegate>("retro_load_game");
+                RetroUnloadGame = dllHandler.GetMethod<RetroUnloadGameDelegate>("retro_unload_game");
                 RetroSetVideoRefresh = dllHandler.GetMethod<RetroSetVideoRefreshDelegate>("retro_set_video_refresh");
                 RetroSetAudioSample = dllHandler.GetMethod<RetroSetAudioSampleDelegate>("retro_set_audio_sample");
                 RetroSetAudioSampleBatch = dllHandler.GetMethod<RetroSetAudioSampleBatchDelegate>("retro_set_audio_sample_batch");
