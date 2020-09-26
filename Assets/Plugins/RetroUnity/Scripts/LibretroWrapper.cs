@@ -330,7 +330,7 @@ namespace RetroUnity {
 
 
                         tex.SetPixels32(color32arr, 0);
-                        tex.filterMode = FilterMode.Trilinear;
+                        tex.filterMode = FilterMode.Point;
                         tex.Apply();
                         break;
 
