@@ -219,12 +219,14 @@ namespace RetroUnity {
             public char* value;
         };
 
+        [System.Serializable]
         public class CoreOptions
         {
             public string CoreName = string.Empty;
             public List<string> Options = new List<string>();
         }
 
+        [System.Serializable]
         public class CoreOptionsList
         {
             public List<CoreOptions> Cores = new List<CoreOptions>();
@@ -614,6 +616,8 @@ namespace RetroUnity {
                             string coreOption = coreOptions.Options.Find(x => x.StartsWith(key, StringComparison.OrdinalIgnoreCase));
                             if (coreOption != null)
                             {
+                                if (key == "snes9x_audio_interpolation") //weird hack that fixes pitchy base noise in SNES super mario world?
+                                    return false;
                                 outVariable->value = StringToChar(coreOption.Split(';')[1]);
                             }
                             else
@@ -627,8 +631,6 @@ namespace RetroUnity {
                             Debug.LogWarning($"Core didn't set its options for key '{key}'.");
                             return false;
                         }
-
-                        //return false; //we still didn't do anything here so we return false like we didn't get command for now
                         break;
                     case Environment.RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
                         *(bool*)data = false; //say there has been no variable updates
